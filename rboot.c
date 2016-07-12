@@ -12,7 +12,8 @@
 #include "rboot-private.h"
 #include <rboot-hex2a.h>
 
-static uint32 check_image(uint32 readpos) {
+// sdk, rom : 0-based flash linear address
+static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 
 	uint8 buffer[BUFFER_SIZE];
 	uint8 sectcount;
@@ -22,9 +23,12 @@ static uint32 check_image(uint32 readpos) {
 	uint32 loop;
 	uint32 remaining;
 	uint32 romaddr;
+	uint32 readpos;
 
 	rom_header_new *header = (rom_header_new*)buffer;
 	section_header *section = (section_header*)buffer;
+
+	readpos = sdk_start;
 
 	if (readpos == 0 || readpos == 0xffffffff) {
 		return 0;
@@ -43,7 +47,7 @@ static uint32 check_image(uint32 readpos) {
 		sectcount = header->count;
 	} else if (header->magic == ROM_MAGIC_NEW1 && header->count == ROM_MAGIC_NEW2) {
 		// new type, has extra header and irom section first
-		romaddr = readpos + header->len + sizeof(rom_header_new);
+		romaddr = rom_start;
 #ifdef BOOT_IROM_CHKSUM
 		// we will set the real section count later, when we read the header
 		sectcount = 0xff;
@@ -248,9 +252,10 @@ static uint8 calc_chksum(uint8 *start, uint8 *end) {
 // populate the user fields of the default config
 // created on first boot or in case of corruption
 static uint8 default_config(rboot_config *romconf, uint32 flashsize) {
-	romconf->count = 2;
-	romconf->roms[0] = SECTOR_SIZE * (BOOT_CONFIG_SECTOR + 1);
-	romconf->roms[1] = (flashsize / 2) + (SECTOR_SIZE * (BOOT_CONFIG_SECTOR + 1));
+	romconf->count = 1;
+	romconf->countv[0] = 1;
+	romconf->roms[0] = (BOOT_CONFIG_SECTOR + 1) * SECTOR_SIZE;
+	romconf->romv[0] = (BOOT_CONFIG_SECTOR + 1 + DEFAULT_SDK_SIZE) * SECTOR_SIZE;
 }
 #endif
 
@@ -263,7 +268,7 @@ uint32 NOINLINE find_image(void) {
 	uint8 flag;
 	uint32 runAddr;
 	uint32 flashsize;
-	int32 romToBoot;
+	int32 romToBoot, romVersion;
 	uint8 updateConfig = FALSE;
 	uint8 buffer[SECTOR_SIZE];
 #ifdef BOOT_GPIO_ENABLED
@@ -369,7 +374,7 @@ uint32 NOINLINE find_image(void) {
 		|| romconf->chksum != calc_chksum((uint8*)romconf, (uint8*)&romconf->chksum)
 #endif
 		) {
-		// create a default config for a standard 2 rom setup
+		// create a default config for a standard *k-version* 2 rom setup
 		ets_printf("Writing default boot config.\r\n");
 		ets_memset(romconf, 0x00, sizeof(rboot_config));
 		romconf->magic = BOOT_CONFIG_MAGIC;
@@ -385,6 +390,7 @@ uint32 NOINLINE find_image(void) {
 
 	// try rom selected in the config, unless overriden by gpio/temp boot
 	romToBoot = romconf->current_rom;
+	romVersion = romconf->current_ver;
 
 #ifdef BOOT_RTC_ENABLED
 	// if rtc data enabled, check for valid data
@@ -396,9 +402,14 @@ uint32 NOINLINE find_image(void) {
 				ets_printf("Invalid temp rom selected.\r\n");
 				return 0;
 			}
+			if (rtc.temp_ver >= romconf->countv[rtc.temp_rom]) {
+				ets_printf("Invalid temp rom version selected.\r\n");
+				return 0;
+			}
 			ets_printf("Booting temp rom.\r\n");
 			temp_boot = TRUE;
 			romToBoot = rtc.temp_rom;
+			romVersion = rtc.temp_ver;
 		}
 	}
 #endif
@@ -409,6 +420,10 @@ uint32 NOINLINE find_image(void) {
 			ets_printf("Invalid GPIO rom selected.\r\n");
 			return 0;
 		}
+		if (romconf->gpio_ver >= romconf->countv[romconf->grio_rom]) {
+			ets_printf("Invalid GPIO rom version selected.\r\n");
+			return 0;
+		}
 		ets_printf("Booting GPIO-selected rom.\r\n");
 		if (romconf->mode & MODE_GPIO_ERASES_SDKCONFIG) {
 			ets_printf("Erasing SDK config sectors before booting.\r\n");
@@ -417,6 +432,7 @@ uint32 NOINLINE find_image(void) {
 			}
 		}
 		romToBoot = romconf->gpio_rom;
+		romVersion = romconf->gpio_ver;
 		gpio_boot = TRUE;
 		updateConfig = TRUE;
 	}
@@ -426,24 +442,33 @@ uint32 NOINLINE find_image(void) {
 	// gpio/temp boots will have already validated this
 	if (romconf->current_rom >= romconf->count) {
 		// if invalid rom selected try rom 0
-		ets_printf("Invalid rom selected, defaulting to 0.\r\n");
+		ets_printf("Invalid rom selected, defaulting to (0:0).\r\n");
 		romToBoot = 0;
+		romVersion = 0;
 		romconf->current_rom = 0;
+		romconf->current_ver = 0;
+		updateConfig = TRUE;
+	}
+	if (romconf->current_ver >= romconf->countv[romconf->current_rom]) {
+		// if invalid rom version selected try lowest version
+		ets_printf("Invalid rom version selected, defaulting to (x:0).\r\n");
+		romVersion = 0;
+		romconf->current_ver = 0;
 		updateConfig = TRUE;
 	}
 
 	// check rom is valid
-	runAddr = check_image(romconf->roms[romToBoot]);
+	runAddr = check_image(romconf->roms[romToBoot], romconf->romv[MAX_ROMS*romToBoot + romVersion]);
 
 #ifdef BOOT_GPIO_ENABLED
-	if (gpio_boot && runAddr == 0) {
+	if (gpio_boot && imageOk == 0) {
 		// don't switch to backup for gpio-selected rom
 		ets_printf("GPIO boot rom (%d) is bad.\r\n", romToBoot);
 		return 0;
 	}
 #endif
 #ifdef BOOT_RTC_ENABLED
-	if (temp_boot && runAddr == 0) {
+	if (temp_boot && imgeOk == 0) {
 		// don't switch to backup for temp rom
 		ets_printf("Temp boot rom (%d) is bad.\r\n", romToBoot);
 		// make sure rtc temp boot mode doesn't persist
@@ -467,12 +492,13 @@ uint32 NOINLINE find_image(void) {
 			ets_printf("No good rom available.\r\n");
 			return 0;
 		}
-		runAddr = check_image(romconf->roms[romToBoot]);
+		runAddr = check_image(romconf->roms[romToBoot], romconf->romv[MAX_ROMS*romToBoot + romVersion]);
 	}
 
 	// re-write config, if required
 	if (updateConfig) {
 		romconf->current_rom = romToBoot;
+		romconf->current_ver = romVersion;
 #ifdef BOOT_CONFIG_CHKSUM
 		romconf->chksum = calc_chksum((uint8*)romconf, (uint8*)&romconf->chksum);
 #endif
@@ -490,17 +516,19 @@ uint32 NOINLINE find_image(void) {
 	if (gpio_boot) rtc.last_mode |= MODE_GPIO_ROM;
 #endif
 	rtc.last_rom = romToBoot;
+	rtc.last_ver = romVersion;
 	rtc.temp_rom = 0;
+	rtc.temp_ver = 0;
 	rtc.chksum = calc_chksum((uint8*)&rtc, (uint8*)&rtc.chksum);
 	system_rtc_mem(RBOOT_RTC_ADDR, &rtc, sizeof(rboot_rtc_data), RBOOT_RTC_WRITE);
 #endif
 
-	ets_printf("Booting rom %d.\r\n", romToBoot);
+	ets_printf("Booting rom %d, version %d.\r\n", romToBoot, romVersion);
 	// copy the loader to top of iram
 	ets_memcpy((void*)_text_addr, _text_data, _text_len);
 	// return address to load from
+	
 	return runAddr;
-
 }
 
 #ifdef BOOT_NO_ASM

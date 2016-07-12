@@ -16,8 +16,8 @@ typedef unsigned char uint8;
 
 #define NOINLINE __attribute__ ((noinline))
 
-#define ROM_MAGIC	   0xe9
-#define ROM_MAGIC_NEW1 0xea
+#define ROM_MAGIC	   0xE9
+#define ROM_MAGIC_NEW1 0xEA
 #define ROM_MAGIC_NEW2 0x04
 
 #define TRUE 1

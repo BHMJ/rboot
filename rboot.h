@@ -62,10 +62,11 @@ extern "C" {
 #define CHKSUM_INIT 0xef
 
 #define SECTOR_SIZE 0x1000
-#define BOOT_CONFIG_SECTOR 1
+#define BOOT_CONFIG_SECTOR   1
+#define DEFAULT_SDK_SIZE     46       // SDK size in sectors (rounded up)
 
-#define BOOT_CONFIG_MAGIC 0xe1
-#define BOOT_CONFIG_VERSION 0x01
+#define BOOT_CONFIG_MAGIC    0xE2     // kboot magic
+#define BOOT_CONFIG_VERSION  0x01     // 
 
 #define MODE_STANDARD    0x00
 #define MODE_GPIO_ROM    0x01
@@ -101,10 +102,13 @@ typedef struct {
 	uint8 version;         ///< Version of configuration structure - should be BOOT_CONFIG_VERSION
 	uint8 mode;            ///< Boot loader mode (MODE_STANDARD | MODE_GPIO_ROM)
 	uint8 current_rom;     ///< Currently selected ROM (will be used for next standard boot)
+	uint8 current_ver;     ///< Currently selected ROM version (will be used for next standard boot)
 	uint8 gpio_rom;        ///< ROM to use for GPIO boot (hardware switch) with mode set to MODE_GPIO_ROM
+	uint8 gpio_ver;        ///< ROM version to use for GPIO boot (hardware switch) with mode set to MODE_GPIO_ROM
 	uint8 count;           ///< Quantity of ROMs available to boot
-	uint8 unused[2];       ///< Padding (not used)
-	uint32 roms[MAX_ROMS]; ///< Flash addresses of each ROM
+	uint8 countv[MAX_ROMS];///< Quantity of ROM versions available for each ROM
+	uint32 roms[MAX_ROMS]; ///< Sector numbers of each ROM
+	uint32 romv[MAX_ROMS*MAX_ROMS]; ///< Sector numbers of each ROM version
 #ifdef BOOT_CONFIG_CHKSUM
 	uint8 chksum;          ///< Checksum of this configuration structure (if BOOT_CONFIG_CHKSUM defined)
 #endif
@@ -121,7 +125,9 @@ typedef struct {
 	uint8 next_mode;        ///< The next boot mode, defaults to MODE_STANDARD - can be set to MODE_TEMP_ROM
 	uint8 last_mode;        ///< The last (this) boot mode - can be MODE_STANDARD, MODE_GPIO_ROM or MODE_TEMP_ROM
 	uint8 last_rom;         ///< The last (this) boot rom number
+	uint8 last_ver;         ///< The last (this) boot rom version number
 	uint8 temp_rom;         ///< The next boot rom number when next_mode set to MODE_TEMP_ROM
+	uint8 temp_ver;         ///< The next boot rom version number when next_mode set to MODE_TEMP_ROM
 	uint8 chksum;           ///< Checksum of this structure this will be updated for you passed to the API
 } rboot_rtc_data;
 #endif
@@ -132,9 +138,10 @@ typedef struct {
 // or just plain wrong if the device has not been programmed correctly!)
 #ifdef BOOT_CUSTOM_DEFAULT_CONFIG
 static uint8 default_config(rboot_config *romconf, uint32 flashsize) {
-	romconf->count = 2;
-	romconf->roms[0] = SECTOR_SIZE * (BOOT_CONFIG_SECTOR + 1);
-	romconf->roms[1] = (flashsize / 2) + (SECTOR_SIZE * (BOOT_CONFIG_SECTOR + 1));
+	romconf->count = 1;
+	romconf->countv[0] = 1;
+	romconf->roms[0] = BOOT_CONFIG_SECTOR + 1;
+	romconf->romv[0] = BOOT_CONFIG_SECTOR + 1 + DEFAULT_SDK_SIZE;
 }
 #endif
 
