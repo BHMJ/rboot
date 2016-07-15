@@ -12,6 +12,30 @@
 #include "rboot-private.h"
 #include <rboot-hex2a.h>
 
+#ifdef BOOT_CONFIG_CHKSUM
+//#warning "Boot config checksum enabled"
+#else
+//#warning "Boot config checksum disabled"
+#endif
+
+#ifdef BOOT_RTC_ENABLED
+//#warning "Boot RTC enabled"
+#else
+//#warning "Boot RTC disabled"
+#endif
+
+#ifdef BOOT_GPIO_ENABLED
+//#warning "Boot GPIO enabled"
+#else
+//#warning "Boot GPIO disabled"
+#endif
+
+#ifdef BOOT_IROM_CHKSUM
+//#warning "Boot IROM checksum enabled"
+#else
+//#warning "Boot IROM checksum disabled"
+#endif
+
 // sdk, rom : 0-based flash linear address
 static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 
@@ -297,74 +321,74 @@ uint32 NOINLINE find_image(void) {
 	ets_printf("Flash Size:   ");
 	flag = header->flags2 >> 4;
 	if (flag == 0) {
-		ets_printf("4 Mbit\r\n");
+		ets_printf("4 Mbit");
 		flashsize = 0x80000;
 	} else if (flag == 1) {
-		ets_printf("2 Mbit\r\n");
+		ets_printf("2 Mbit");
 		flashsize = 0x40000;
 	} else if (flag == 2) {
-		ets_printf("8 Mbit\r\n");
+		ets_printf("8 Mbit");
 		flashsize = 0x100000;
 	} else if (flag == 3) {
-		ets_printf("16 Mbit\r\n");
+		ets_printf("16 Mbit");
 #ifdef BOOT_BIG_FLASH
 		flashsize = 0x200000;
 #else
 		flashsize = 0x100000; // limit to 8Mbit
 #endif
 	} else if (flag == 4) {
-		ets_printf("32 Mbit\r\n");
+		ets_printf("32 Mbit");
 #ifdef BOOT_BIG_FLASH
 		flashsize = 0x400000;
 #else
 		flashsize = 0x100000; // limit to 8Mbit
 #endif
 	} else {
-		ets_printf("unknown\r\n");
+		ets_printf("unknown");
 		// assume at least 4mbit
 		flashsize = 0x80000;
 	}
 
 	// print spi mode
-	ets_printf("Flash Mode:   ");
+	ets_printf("\r\nFlash Mode:   ");
 	if (header->flags1 == 0) {
-		ets_printf("QIO\r\n");
+		ets_printf("QIO");
 	} else if (header->flags1 == 1) {
-		ets_printf("QOUT\r\n");
+		ets_printf("QOUT");
 	} else if (header->flags1 == 2) {
-		ets_printf("DIO\r\n");
+		ets_printf("DIO");
 	} else if (header->flags1 == 3) {
-		ets_printf("DOUT\r\n");
+		ets_printf("DOUT");
 	} else {
-		ets_printf("unknown\r\n");
+		ets_printf("unknown");
 	}
 
 	// print spi speed
-	ets_printf("Flash Speed:  ");
+	ets_printf("\r\nFlash Speed:  ");
 	flag = header->flags2 & 0x0f;
-	if (flag == 0) ets_printf("40 MHz\r\n");
-	else if (flag == 1) ets_printf("26.7 MHz\r\n");
-	else if (flag == 2) ets_printf("20 MHz\r\n");
-	else if (flag == 0x0f) ets_printf("80 MHz\r\n");
-	else ets_printf("unknown\r\n");
+	if (flag == 0) ets_printf("40 MHz");
+	else if (flag == 1) ets_printf("26.7 MHz");
+	else if (flag == 2) ets_printf("20 MHz");
+	else if (flag == 0x0f) ets_printf("80 MHz");
+	else ets_printf("unknown");
 
 	// print enabled options
 #ifdef BOOT_BIG_FLASH
-	ets_printf("rBoot Option: Big flash\r\n");
+	ets_printf("\r\nrBoot Option: Big flash");
 #endif
 #ifdef BOOT_CONFIG_CHKSUM
-	ets_printf("rBoot Option: Config chksum\r\n");
+	ets_printf("\r\nrBoot Option: Config chksum");
 #endif
 #ifdef BOOT_GPIO_ENABLED
-	ets_printf("rBoot Option: GPIO mode (%d)\r\n", BOOT_GPIO_NUM);
+	ets_printf("\r\nrBoot Option: GPIO mode (%d)", BOOT_GPIO_NUM);
 #endif
 #ifdef BOOT_RTC_ENABLED
-	ets_printf("rBoot Option: RTC data\r\n");
+	ets_printf("\r\nrBoot Option: RTC data");
 #endif
 #ifdef BOOT_IROM_CHKSUM
-	ets_printf("rBoot Option: irom chksum\r\n");
+	ets_printf("\r\nrBoot Option: irom chksum");
 #endif
-	ets_printf("\r\n");
+	ets_printf("\r\n\r\n");
 
 	// read boot config
 	SPIRead(BOOT_CONFIG_SECTOR * SECTOR_SIZE, buffer, SECTOR_SIZE);

@@ -26,7 +26,7 @@ CFLAGS    = -Os -O3 -Wpointer-arith -Wundef -Werror -Wl,-EL -fno-inline-function
 LDFLAGS   = -nostdlib -Wl,--no-check-sections -u call_user_start -Wl,-static
 LD_SCRIPT = eagle.app.v6.ld
 
-E2_OPTS = -debug -bin -boot0
+E2_OPTS = -info -bin -boot0
 
 ifeq ($(RBOOT_BIG_FLASH),1)
 	CFLAGS += -DBOOT_BIG_FLASH
@@ -108,8 +108,8 @@ $(RBOOT_BUILD_BASE)/rboot-stage2a.elf: $(RBOOT_BUILD_BASE)/rboot-stage2a.o
 
 $(RBOOT_BUILD_BASE)/rboot-hex2a.h: $(RBOOT_BUILD_BASE)/rboot-stage2a.elf
 	@echo "E2 $@"
-	@echo $(ESPTOOL2) -debug -header $< $@ .text
-	$(Q) $(ESPTOOL2) -debug -header $< $@ .text
+	@echo $(ESPTOOL2) -info -header $< $@ .text
+	$(Q) $(ESPTOOL2) -info -header $< $@ .text
 
 $(RBOOT_BUILD_BASE)/rboot.o: rboot.c rboot-private.h rboot.h $(RBOOT_BUILD_BASE)/rboot-hex2a.h
 	@echo "CC $<"
