@@ -65,8 +65,11 @@ extern "C" {
 #define BOOT_CONFIG_SECTOR   1
 #define DEFAULT_SDK_SIZE     46       // SDK size in sectors (rounded up)
 
-#define BOOT_CONFIG_MAGIC    0xE2     // kboot magic
-#define BOOT_CONFIG_VERSION  0x01     // 
+#define RBOOT_CONFIG_MAGIC    0xE1    // kboot magic
+#define RBOOT_CONFIG_VERSION  0x01    // 
+
+#define GBOOT_CONFIG_MAGIC    0xE2    // kboot magic
+#define GBOOT_CONFIG_VERSION  0x01    // 
 
 #define MODE_STANDARD    0x00
 #define MODE_GPIO_ROM    0x01
@@ -98,7 +101,21 @@ extern "C" {
  *  @ingroup rboot
 */
 typedef struct {
-	uint8 magic;           ///< Our magic, identifies rBoot configuration - should be BOOT_CONFIG_MAGIC
+	uint8 magic;           ///< Our magic, identifies rBoot configuration - should be RBOOT_CONFIG_MAGIC
+	uint8 version;         ///< Version of configuration structure - should be BOOT_CONFIG_VERSION
+	uint8 mode;            ///< Boot loader mode (MODE_STANDARD | MODE_GPIO_ROM)
+	uint8 current_rom;     ///< Currently selected ROM (will be used for next standard boot)
+	uint8 gpio_rom;        ///< ROM to use for GPIO boot (hardware switch) with mode set to MODE_GPIO_ROM
+	uint8 count;           ///< Quantity of ROMs available to boot
+	uint8 unused[2];       ///< Quantity of ROM versions available for each ROM
+	uint32 roms[MAX_ROMS]; ///< Sector numbers of each ROM
+#ifdef BOOT_CONFIG_CHKSUM
+	uint8 chksum;          ///< Checksum of this configuration structure (if BOOT_CONFIG_CHKSUM defined)
+#endif
+} rboot_config;
+
+typedef struct {
+	uint8 magic;           ///< Our magic, identifies rBoot configuration - should be GBOOT_CONFIG_MAGIC
 	uint8 version;         ///< Version of configuration structure - should be BOOT_CONFIG_VERSION
 	uint8 mode;            ///< Boot loader mode (MODE_STANDARD | MODE_GPIO_ROM)
 	uint8 current_rom;     ///< Currently selected ROM (will be used for next standard boot)
@@ -112,7 +129,7 @@ typedef struct {
 #ifdef BOOT_CONFIG_CHKSUM
 	uint8 chksum;          ///< Checksum of this configuration structure (if BOOT_CONFIG_CHKSUM defined)
 #endif
-} rboot_config;
+} gboot_config;
 
 #ifdef BOOT_RTC_ENABLED
 /** @brief  Structure containing rBoot status/control data

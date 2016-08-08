@@ -4,12 +4,9 @@
 #
 
 ESPTOOL2 ?= ../esptool2/esptool2
-ESPTOOL      ?= "C:\Python27\python.exe" "C:\Stream\ESP\esptool-py\esptool.py"
 
 RBOOT_BUILD_BASE ?= build
 RBOOT_FW_BASE    ?= firmware
-
-ESPPORT      ?= COM2
 
 ifndef XTENSA_BINDIR
 CC := xtensa-lx106-elf-gcc
@@ -96,10 +93,10 @@ endif
 all: $(RBOOT_BUILD_BASE) $(RBOOT_FW_BASE) $(RBOOT_FW_BASE)/rboot.bin
 
 $(RBOOT_BUILD_BASE):
-	mkdir $@
+	mkdir -p $@
 
 $(RBOOT_FW_BASE):
-	mkdir $@
+	mkdir -p $@
 
 $(RBOOT_BUILD_BASE)/rboot-stage2a.o: rboot-stage2a.c rboot-private.h rboot.h
 	@echo "CC $<"
@@ -131,12 +128,7 @@ $(RBOOT_FW_BASE)/%.bin: $(RBOOT_BUILD_BASE)/%.elf
 	@echo $(ESPTOOL2) $(E2_OPTS) $< $@ .text .rodata
 	$(Q) $(ESPTOOL2) $(E2_OPTS) $< $@ .text .rodata
 
-flash: $(RBOOT_FW_BASE)/rboot.bin
-#	$(ESPTOOL) --port $(ESPPORT) write_flash 0x0000 /rboot.bin 0x1000 bin/conf.bin 0x2000 $(FW_DIR)/sdk.bin 0x30000 $(FW_DIR)/rom0.bin 0x46000 $(FW_DIR)/rom1.bin 0x7C000 bin/esp_init_data_default.bin 0x7E000 bin/blank.bin
-	$(ESPTOOL) --port $(ESPPORT) write_flash 0x0000 $(RBOOT_FW_BASE)/rboot.bin 0x1000 bin/blank.bin
-	"C:\WinApps\Putty\PuTTY.exe" -load "COM3 115200"
-
 clean:
 	@echo "RM $(RBOOT_BUILD_BASE) $(RBOOT_FW_BASE)"
-	$(Q) rmdir /S /Q $(RBOOT_BUILD_BASE)
-	$(Q) rmdir /S /Q $(RBOOT_FW_BASE)
+	$(Q) rm -rf $(RBOOT_BUILD_BASE)
+	$(Q) rm -rf $(RBOOT_FW_BASE)

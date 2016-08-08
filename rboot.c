@@ -54,12 +54,16 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 
 	readpos = sdk_start;
 
+	ets_printf("checking image at {sdk_start = %08X}, {rom_start = %08X}\n", sdk_start, rom_start);
+
 	if (readpos == 0 || readpos == 0xffffffff) {
+		ets_printf("readpos = 0\r\n");
 		return 0;
 	}
 
 	// read rom header
 	if (SPIRead(readpos, header, sizeof(rom_header_new)) != 0) {
+		ets_printf("SPIRead error\r\n");
 		return 0;
 	}
 
@@ -71,7 +75,11 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 		sectcount = header->count;
 	} else if (header->magic == ROM_MAGIC_NEW1 && header->count == ROM_MAGIC_NEW2) {
 		// new type, has extra header and irom section first
-		romaddr = rom_start;
+		if (rom_start > 0) {
+			romaddr = rom_start;
+		} else {
+			romaddr = readpos + header->len + sizeof(rom_header_new);
+		}
 #ifdef BOOT_IROM_CHKSUM
 		// we will set the real section count later, when we read the header
 		sectcount = 0xff;
@@ -83,12 +91,14 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 		readpos = romaddr;
 		// read the normal header that follows
 		if (SPIRead(readpos, header, sizeof(rom_header)) != 0) {
+			ets_printf("SPIRead error (2)\r\n");
 			return 0;
 		}
 		sectcount = header->count;
 		readpos += sizeof(rom_header);
 #endif
 	} else {
+		ets_printf("Just error\r\n");
 		return 0;
 	}
 
@@ -97,6 +107,7 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 
 		// read section header
 		if (SPIRead(readpos, section, sizeof(section_header)) != 0) {
+			ets_printf("SPIRead error (3)\r\n");
 			return 0;
 		}
 		readpos += sizeof(section_header);
@@ -110,6 +121,7 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 			uint32 readlen = (remaining < BUFFER_SIZE) ? remaining : BUFFER_SIZE;
 			// read the block
 			if (SPIRead(readpos, buffer, readlen) != 0) {
+				ets_printf("SPIRead error: reading %u bytes from %08X into %08X\n", readlen, readpos, buffer);
 				return 0;
 			}
 			// increment next read and write positions
@@ -128,6 +140,7 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 			// just processed the irom section, now
 			// read the normal header that follows
 			if (SPIRead(readpos, header, sizeof(rom_header)) != 0) {
+				ets_printf("SPIRead error (5)\r\n");
 				return 0;
 			}
 			sectcount = header->count + 1;
@@ -139,11 +152,13 @@ static uint32 check_image(uint32 sdk_start, uint32 rom_start) {
 	// round up to next 16 and get checksum
 	readpos = readpos | 0x0f;
 	if (SPIRead(readpos, buffer, 1) != 0) {
+		ets_printf("SPIRead error (6)\r\n");
 		return 0;
 	}
 
 	// compare calculated and stored checksums
 	if (buffer[0] != chksum) {
+		ets_printf("Bad checksum\r\n");
 		return 0;
 	}
 
@@ -275,11 +290,20 @@ static uint8 calc_chksum(uint8 *start, uint8 *end) {
 #ifndef BOOT_CUSTOM_DEFAULT_CONFIG
 // populate the user fields of the default config
 // created on first boot or in case of corruption
-static uint8 default_config(rboot_config *romconf, uint32 flashsize) {
-	romconf->count = 1;
-	romconf->countv[0] = 1;
-	romconf->roms[0] = (BOOT_CONFIG_SECTOR + 1) * SECTOR_SIZE;
-	romconf->romv[0] = (BOOT_CONFIG_SECTOR + 1 + DEFAULT_SDK_SIZE) * SECTOR_SIZE;
+static uint8 default_rconfig(rboot_config *rconf, uint32 flashsize) {
+	rconf->count = 1;
+	rconf->roms[0] = (BOOT_CONFIG_SECTOR + 1) * SECTOR_SIZE;
+}
+#endif
+
+#ifndef BOOT_CUSTOM_DEFAULT_CONFIG
+// populate the user fields of the default config
+// created on first boot or in case of corruption
+static uint8 default_gconfig(gboot_config *gconf, uint32 flashsize) {
+	gconf->count = 1;
+	gconf->countv[0] = 1;
+	gconf->roms[0] = (BOOT_CONFIG_SECTOR + 1) * SECTOR_SIZE;
+	gconf->romv[0] = (BOOT_CONFIG_SECTOR + 1 + DEFAULT_SDK_SIZE) * SECTOR_SIZE;
 }
 #endif
 
@@ -304,9 +328,11 @@ uint32 NOINLINE find_image(void) {
 	uint8 temp_boot = FALSE;
 #endif
 
-	rboot_config *romconf = (rboot_config*)buffer;
+	rboot_config *rconf = (rboot_config*)buffer;
+	gboot_config *gconf = (gboot_config*)buffer;
 	rom_header *header = (rom_header*)buffer;
 
+#define BOOT_DELAY_MICROS 2000000
 #if defined BOOT_DELAY_MICROS && BOOT_DELAY_MICROS > 0
 	// delay to slow boot (help see messages when debugging)
 	ets_delay_us(BOOT_DELAY_MICROS);
@@ -392,18 +418,27 @@ uint32 NOINLINE find_image(void) {
 
 	// read boot config
 	SPIRead(BOOT_CONFIG_SECTOR * SECTOR_SIZE, buffer, SECTOR_SIZE);
-	// fresh install or old version?
-	if (romconf->magic != BOOT_CONFIG_MAGIC || romconf->version != BOOT_CONFIG_VERSION
-#ifdef BOOT_CONFIG_CHKSUM
-		|| romconf->chksum != calc_chksum((uint8*)romconf, (uint8*)&romconf->chksum)
-#endif
-		) {
-		// create a default config for a standard *k-version* 2 rom setup
-		ets_printf("Writing default boot config.\r\n");
-		ets_memset(romconf, 0x00, sizeof(rboot_config));
-		romconf->magic = BOOT_CONFIG_MAGIC;
-		romconf->version = BOOT_CONFIG_VERSION;
-		default_config(romconf, flashsize);
+	
+	// check config version
+	if (rconf->magic == RBOOT_CONFIG_MAGIC && rconf->version == RBOOT_CONFIG_VERSION) {
+		ets_printf("Standard rboot config found\n");
+		// try rom selected in the config, unless overriden by gpio/temp boot
+		romToBoot = rconf->current_rom;
+		ets_printf("romToBoot = %u\n", romToBoot);
+	} else if (rconf->magic == GBOOT_CONFIG_MAGIC && rconf->version == GBOOT_CONFIG_VERSION) {
+		ets_printf("Extended gboot config found\n");
+		// try rom selected in the config, unless overriden by gpio/temp boot
+		romToBoot = gconf->current_rom;
+		romVersion = gconf->current_ver;
+		ets_printf("romToBoot = %u, romVersion = %u\n", romToBoot, romVersion);
+	} else {
+		// create a default *RBOOT* config for a standard 2 rom setup
+		ets_printf("Writing default rboot config.\n");
+		ets_memset(rconf, 0x00, sizeof(rboot_config));
+		rconf->magic = RBOOT_CONFIG_MAGIC;
+		rconf->version = RBOOT_CONFIG_VERSION;
+		romToBoot = 0;
+		default_rconfig(rconf, flashsize);
 #ifdef BOOT_CONFIG_CHKSUM
 		romconf->chksum = calc_chksum((uint8*)romconf, (uint8*)&romconf->chksum);
 #endif
@@ -411,10 +446,6 @@ uint32 NOINLINE find_image(void) {
 		SPIEraseSector(BOOT_CONFIG_SECTOR);
 		SPIWrite(BOOT_CONFIG_SECTOR * SECTOR_SIZE, buffer, SECTOR_SIZE);
 	}
-
-	// try rom selected in the config, unless overriden by gpio/temp boot
-	romToBoot = romconf->current_rom;
-	romVersion = romconf->current_ver;
 
 #ifdef BOOT_RTC_ENABLED
 	// if rtc data enabled, check for valid data
@@ -462,27 +493,43 @@ uint32 NOINLINE find_image(void) {
 	}
 #endif
 
-	// check valid rom number
-	// gpio/temp boots will have already validated this
-	if (romconf->current_rom >= romconf->count) {
-		// if invalid rom selected try rom 0
-		ets_printf("Invalid rom selected, defaulting to (0:0).\r\n");
-		romToBoot = 0;
-		romVersion = 0;
-		romconf->current_rom = 0;
-		romconf->current_ver = 0;
-		updateConfig = TRUE;
+	if (rconf->magic==RBOOT_CONFIG_MAGIC) {
+		// check valid rom number
+		ets_printf("checking rboot image at rconf->roms[%u] = %08X\n", romToBoot, rconf->roms[romToBoot]);
+		// gpio/temp boots will have already validated this
+		if (rconf->current_rom >= rconf->count) {
+			// if invalid rom selected try rom 0
+			ets_printf("Invalid rom selected, defaulting to (0).\r\n");
+			romToBoot = 0;
+			rconf->current_rom = 0;
+			updateConfig = TRUE;
+		}
+		// check rom is valid
+		runAddr = check_image(rconf->roms[romToBoot], 0);
+	} else {
+		// check valid rom number
+		// gpio/temp boots will have already validated this
+		if (gconf->current_rom >= gconf->count) {
+			// if invalid rom selected try rom 0
+			ets_printf("Invalid rom selected, defaulting to (0:0).\r\n");
+			romToBoot = 0;
+			romVersion = 0;
+			gconf->current_rom = 0;
+			gconf->current_ver = 0;
+			updateConfig = TRUE;
+		}
+		if (gconf->current_ver >= gconf->countv[gconf->current_rom]) {
+			// if invalid rom version selected try lowest version
+			ets_printf("Invalid rom version selected, defaulting to (x:0).\r\n");
+			romVersion = 0;
+			gconf->current_ver = 0;
+			updateConfig = TRUE;
+		}
+		// check rom is valid
+		ets_printf("checking gboot image at gconf->roms[%u] = %08X, gconf->romv[%u] = %08X\n", 
+			romToBoot, gconf->roms[romToBoot], romVersion, gconf->romv[MAX_ROMS*romToBoot + romVersion]);
+		runAddr = check_image(gconf->roms[romToBoot], gconf->romv[MAX_ROMS*romToBoot + romVersion]);
 	}
-	if (romconf->current_ver >= romconf->countv[romconf->current_rom]) {
-		// if invalid rom version selected try lowest version
-		ets_printf("Invalid rom version selected, defaulting to (x:0).\r\n");
-		romVersion = 0;
-		romconf->current_ver = 0;
-		updateConfig = TRUE;
-	}
-
-	// check rom is valid
-	runAddr = check_image(romconf->roms[romToBoot], romconf->romv[MAX_ROMS*romToBoot + romVersion]);
 
 #ifdef BOOT_GPIO_ENABLED
 	if (gpio_boot && imageOk == 0) {
@@ -510,22 +557,39 @@ uint32 NOINLINE find_image(void) {
 		// until we find a good one or run out
 		updateConfig = TRUE;
 		romToBoot--;
-		if (romToBoot < 0) romToBoot = romconf->count - 1;
-		if (romToBoot == romconf->current_rom) {
-			// tried them all and all are bad!
-			ets_printf("No good rom available.\r\n");
-			return 0;
+		if (rconf->magic == RBOOT_CONFIG_MAGIC) {
+			if (romToBoot < 0) romToBoot = rconf->count - 1;
+			if (romToBoot == rconf->current_rom) {
+				// tried them all and all are bad!
+				ets_printf("No good rom available.\r\n");
+				return 0;
+			}
+			runAddr = check_image(rconf->roms[romToBoot], 0);
+		} else {
+			if (romToBoot < 0) romToBoot = gconf->count - 1;
+			if (romToBoot == gconf->current_rom) {
+				// tried them all and all are bad!
+				ets_printf("No good rom available.\r\n");
+				return 0;
+			}
+			runAddr = check_image(gconf->roms[romToBoot], gconf->romv[MAX_ROMS*romToBoot + romVersion]);
 		}
-		runAddr = check_image(romconf->roms[romToBoot], romconf->romv[MAX_ROMS*romToBoot + romVersion]);
 	}
 
 	// re-write config, if required
 	if (updateConfig) {
-		romconf->current_rom = romToBoot;
-		romconf->current_ver = romVersion;
+		if (rconf->magic==RBOOT_CONFIG_MAGIC) {
+			rconf->current_rom = romToBoot;
 #ifdef BOOT_CONFIG_CHKSUM
-		romconf->chksum = calc_chksum((uint8*)romconf, (uint8*)&romconf->chksum);
+			rconf->chksum = calc_chksum((uint8*)rconf, (uint8*)&rconf->chksum);
 #endif
+		} else {
+			gconf->current_rom = romToBoot;
+			gconf->current_ver = romVersion;
+#ifdef BOOT_CONFIG_CHKSUM
+			gconf->chksum = calc_chksum((uint8*)gconf, (uint8*)&gconf->chksum);
+#endif
+		}
 		SPIEraseSector(BOOT_CONFIG_SECTOR);
 		SPIWrite(BOOT_CONFIG_SECTOR * SECTOR_SIZE, buffer, SECTOR_SIZE);
 	}
