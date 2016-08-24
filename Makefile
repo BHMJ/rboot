@@ -9,6 +9,8 @@ ESPTOOL      ?= "C:\Python27\python.exe" "C:\Stream\ESP\esptool-py\esptool.py"
 RBOOT_BUILD_BASE ?= build
 RBOOT_FW_BASE    ?= firmware
 
+RBOOT_DELAY_MICROS = 1000000
+
 ESPPORT      ?= COM2
 
 ifndef XTENSA_BINDIR
@@ -138,5 +140,5 @@ flash: $(RBOOT_FW_BASE)/rboot.bin
 
 clean:
 	@echo "RM $(RBOOT_BUILD_BASE) $(RBOOT_FW_BASE)"
-	$(Q) rmdir /S /Q $(RBOOT_BUILD_BASE)
-	$(Q) rmdir /S /Q $(RBOOT_FW_BASE)
+	$(Q) rm -rf $(RBOOT_BUILD_BASE)
+	$(Q) rm -rf $(RBOOT_FW_BASE)

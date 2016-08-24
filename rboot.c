@@ -332,7 +332,6 @@ uint32 NOINLINE find_image(void) {
 	gboot_config *gconf = (gboot_config*)buffer;
 	rom_header *header = (rom_header*)buffer;
 
-#define BOOT_DELAY_MICROS 2000000
 #if defined BOOT_DELAY_MICROS && BOOT_DELAY_MICROS > 0
 	// delay to slow boot (help see messages when debugging)
 	ets_delay_us(BOOT_DELAY_MICROS);
